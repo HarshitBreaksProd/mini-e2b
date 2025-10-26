@@ -169,6 +169,7 @@ export default function SandboxRepl() {
         console.log(
           `[CLIENT] SSE connection opened for sessionId: ${sessionId}`
         );
+        console.log(`[CLIENT] EventSource readyState:`, eventSource.readyState);
         setIsConnected(true);
         setOutput((prev) => [...prev, "Connected to sandbox..."]);
       };
@@ -215,8 +216,24 @@ export default function SandboxRepl() {
 
       eventSource.onerror = (error) => {
         console.error(`[CLIENT] SSE error for sessionId ${sessionId}:`, error);
+        console.error(
+          `[CLIENT] EventSource readyState:`,
+          eventSource.readyState
+        );
+        console.error(`[CLIENT] EventSource URL:`, eventSource.url);
         setIsConnected(false);
         setOutput((prev) => [...prev, "Connection error occurred"]);
+
+        // Try to reconnect after a delay
+        setTimeout(() => {
+          if (eventSource.readyState === EventSource.CLOSED) {
+            console.log(
+              `[CLIENT] Attempting to reconnect SSE for sessionId: ${sessionId}`
+            );
+            eventSourceRef.current?.close();
+            eventSourceRef.current = null;
+          }
+        }, 3000);
       };
     }
 

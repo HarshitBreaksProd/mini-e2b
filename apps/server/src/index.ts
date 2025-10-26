@@ -251,6 +251,20 @@ app.post("/sandbox/:id/repl/start", async (req, res) => {
   }
 });
 
+// Handle OPTIONS preflight for SSE endpoint
+app.options("/sandbox/repl/:sessionId/stream", (req, res) => {
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  res.setHeader("Access-Control-Allow-Origin", frontendUrl);
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Cache-Control"
+  );
+  res.setHeader("Access-Control-Max-Age", "86400");
+  res.status(200).end();
+});
+
 app.get("/sandbox/repl/:sessionId/stream", async (req, res) => {
   const sessionId = req.params.sessionId;
   console.log(`[REPL STREAM] Received SSE request for sessionId: ${sessionId}`);
@@ -275,14 +289,26 @@ app.get("/sandbox/repl/:sessionId/stream", async (req, res) => {
   console.log(
     `[REPL STREAM] Setting up SSE headers and connection for sessionId: ${sessionId}`
   );
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader(
-    "Access-Control-Allow-Origin",
-    process.env.FRONTEND_URL || "http://localhost:5173"
-  );
+
+  // Set comprehensive CORS headers for SSE
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  res.setHeader("Access-Control-Allow-Origin", frontendUrl);
   res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, DELETE, OPTIONS"
+  );
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Cache-Control"
+  );
+  res.setHeader("Access-Control-Expose-Headers", "Content-Type, Cache-Control");
+
+  // Set SSE headers
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
 
   res.write('data: {"type": "connected"}\n\n');
   console.log(
@@ -311,6 +337,24 @@ app.get("/sandbox/repl/:sessionId/stream", async (req, res) => {
 
   res.on("close", () => {
     console.log(`[REPL STREAM] Connection closed for sessionId: ${sessionId}`);
+    emitter.off("output", outputHandler);
+    emitter.off("end", endHandler);
+  });
+
+  res.on("error", (error) => {
+    console.error(
+      `[REPL STREAM] Connection error for sessionId ${sessionId}:`,
+      error
+    );
+    emitter.off("output", outputHandler);
+    emitter.off("end", endHandler);
+  });
+
+  // Handle client disconnect
+  req.on("close", () => {
+    console.log(
+      `[REPL STREAM] Client disconnected for sessionId: ${sessionId}`
+    );
     emitter.off("output", outputHandler);
     emitter.off("end", endHandler);
   });
