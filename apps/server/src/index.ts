@@ -85,7 +85,7 @@ app.delete("/sandbox", async (req, res) => {
 
   try {
     if (!sandboxId) {
-      res.status(404).json({ message: "no sandbox id shared", success: false });
+      res.status(401).json({ message: "no sandbox id shared", success: false });
       return;
     }
 
@@ -98,7 +98,7 @@ app.delete("/sandbox", async (req, res) => {
 
     if (!sandbox) {
       res
-        .status(404)
+        .status(401)
         .json({ message: "invalid sandbox id shared", success: false });
       return;
     }
@@ -135,7 +135,7 @@ app.post("/sandbox/:id/exec", async (req, res) => {
 
   try {
     if (!command) {
-      res.status(404).json({
+      res.status(401).json({
         message: "command is required",
         success: false,
       });
@@ -149,7 +149,7 @@ app.post("/sandbox/:id/exec", async (req, res) => {
     });
 
     if (!sandbox) {
-      res.status(404).json({
+      res.status(401).json({
         message: "Sandbox does not exist or is not active",
         success: false,
       });
@@ -185,7 +185,7 @@ app.post("/sandbox/:id/repl/start", async (req, res) => {
     });
 
     if (!sandbox) {
-      res.status(404).json({
+      res.status(401).json({
         message: "Sandbox does not exist or is not active",
         success: false,
       });
@@ -214,7 +214,7 @@ app.get("/sandbox/repl/:sessionId/stream", async (req, res) => {
   const emitter = getReplEmitter(sessionId);
 
   if (!emitter) {
-    res.status(404).json({
+    res.status(401).json({
       message: "Session not found",
       success: false,
     });
