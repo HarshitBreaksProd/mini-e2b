@@ -38,7 +38,9 @@ export default function SandboxList() {
   const deleteSandboxMutation = useMutation({
     mutationFn: (sandboxId: string) => apiClient.deleteSandbox(sandboxId),
     onSuccess: () => {
+      // Invalidate all sandbox-related queries
       queryClient.invalidateQueries({ queryKey: ["sandboxes"] });
+      queryClient.invalidateQueries({ queryKey: ["sandbox"] });
     },
   });
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiClient } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { ArrowLeft, Send } from "lucide-react";
@@ -23,20 +23,85 @@ export default function SandboxRepl() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Check if sandbox exists and is active
+  const { data: sandboxesData, isLoading: isCheckingSandbox } = useQuery({
+    queryKey: ["sandboxes"],
+    queryFn: () => {
+      console.log(
+        `[CLIENT] Fetching sandboxes to check if sandbox ${sandboxId} exists`
+      );
+      return apiClient.getSandboxes();
+    },
+    enabled: !!sandboxId,
+  });
+
+  const currentSandbox = sandboxesData?.sandboxes?.find(
+    (s) => s.id === sandboxId
+  );
+
+  console.log(
+    `[CLIENT] Current sandbox lookup result:`,
+    currentSandbox
+      ? {
+          id: currentSandbox.id,
+          containerId: currentSandbox.containerId,
+          status: currentSandbox.status,
+        }
+      : "not found"
+  );
+
   // Start REPL mutation
   const startReplMutation = useMutation({
-    mutationFn: () => apiClient.startRepl(sandboxId!),
+    mutationFn: () => {
+      console.log(`[CLIENT] Starting REPL for sandbox: ${sandboxId}`);
+      return apiClient.startRepl(sandboxId!);
+    },
     onSuccess: (data) => {
+      console.log(`[CLIENT] REPL started successfully:`, data);
       setSessionId(data.sessionId);
       setIsReplActive(true);
+    },
+    onError: (error: any) => {
+      console.error(
+        `[CLIENT] Failed to start REPL for sandbox ${sandboxId}:`,
+        error
+      );
+      if (error.message?.includes("Sandbox does not exist")) {
+        setOutput((prev) => [
+          ...prev,
+          "Error: Sandbox not found or has been deleted",
+        ]);
+        setTimeout(() => navigate("/"), 2000);
+      }
     },
   });
 
   // Send input mutation
   const sendInputMutation = useMutation({
-    mutationFn: (input: string) => apiClient.sendInput(sessionId!, input),
+    mutationFn: (input: string) => {
+      console.log(
+        `[CLIENT] Sending input to sessionId ${sessionId}: "${input}"`
+      );
+      return apiClient.sendInput(sessionId!, input);
+    },
     onSuccess: () => {
+      console.log(
+        `[CLIENT] Input sent successfully to sessionId: ${sessionId}`
+      );
       setInput("");
+    },
+    onError: (error: any) => {
+      console.error(
+        `[CLIENT] Failed to send input to sessionId ${sessionId}:`,
+        error
+      );
+      if (error.message?.includes("Sandbox does not exist")) {
+        setOutput((prev) => [
+          ...prev,
+          "Error: Sandbox not found or has been deleted",
+        ]);
+        setTimeout(() => navigate("/"), 2000);
+      }
     },
   });
 
@@ -55,45 +120,75 @@ export default function SandboxRepl() {
 
   // Start REPL session on mount
   useEffect(() => {
-    if (sandboxId && !isReplActive) {
+    if (
+      sandboxId &&
+      !isReplActive &&
+      currentSandbox &&
+      currentSandbox.status === "active"
+    ) {
       startReplMutation.mutate();
     }
-  }, [sandboxId]);
+  }, [sandboxId, currentSandbox, isReplActive]);
 
   // Set up SSE connection when session is available
   useEffect(() => {
     if (sessionId && !eventSourceRef.current) {
+      console.log(
+        `[CLIENT] Setting up SSE connection for sessionId: ${sessionId}`
+      );
       const eventSource = apiClient.createReplStream(sessionId);
       eventSourceRef.current = eventSource;
 
       eventSource.onopen = () => {
+        console.log(
+          `[CLIENT] SSE connection opened for sessionId: ${sessionId}`
+        );
         setIsConnected(true);
         setOutput((prev) => [...prev, "Connected to sandbox..."]);
       };
 
       eventSource.onmessage = (event) => {
+        console.log(
+          `[CLIENT] SSE message received for sessionId ${sessionId}:`,
+          event.data
+        );
         try {
           const data: ReplOutput = JSON.parse(event.data);
+          console.log(`[CLIENT] Parsed SSE data:`, data);
 
           if (data.type === "connected") {
+            console.log(
+              `[CLIENT] REPL session started for sessionId: ${sessionId}`
+            );
             setOutput((prev) => [...prev, "REPL session started"]);
           } else if (data.type === "output" && data.data) {
+            console.log(
+              `[CLIENT] REPL output received for sessionId ${sessionId}:`,
+              data.data
+            );
             setOutput((prev) => [...prev, data.data!]);
           } else if (data.type === "end") {
+            console.log(
+              `[CLIENT] REPL session ended for sessionId: ${sessionId}`
+            );
             setOutput((prev) => [...prev, "REPL session ended"]);
             setIsConnected(false);
           }
         } catch (error) {
-          console.error("Error parsing SSE data:", error);
+          console.error(
+            `[CLIENT] Error parsing SSE data for sessionId ${sessionId}:`,
+            error
+          );
           // Try to handle as plain text if JSON parsing fails
           if (event.data) {
+            console.log(`[CLIENT] Using raw SSE data as text:`, event.data);
             setOutput((prev) => [...prev, event.data]);
           }
         }
       };
 
       eventSource.onerror = (error) => {
-        console.error("SSE error:", error);
+        console.error(`[CLIENT] SSE error for sessionId ${sessionId}:`, error);
         setIsConnected(false);
         setOutput((prev) => [...prev, "Connection error occurred"]);
       };
@@ -101,6 +196,9 @@ export default function SandboxRepl() {
 
     return () => {
       if (eventSourceRef.current) {
+        console.log(
+          `[CLIENT] Cleaning up SSE connection for sessionId: ${sessionId}`
+        );
         eventSourceRef.current.close();
         eventSourceRef.current = null;
       }
@@ -162,10 +260,41 @@ export default function SandboxRepl() {
     );
   }
 
+  // Show loading while checking if sandbox exists
+  if (isCheckingSandbox) {
+    return (
+      <div className="min-h-screen w-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-300">Checking sandbox...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error if sandbox doesn't exist or is not active
+  if (!currentSandbox || currentSandbox.status !== "active") {
+    return (
+      <div className="min-h-screen w-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-400 mb-4">
+            Sandbox not found or has been deleted
+          </p>
+          <Button
+            onClick={() => navigate("/")}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            Go Back to Sandboxes
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-screen bg-gray-900 flex flex-col">
       {/* Header */}
-      <div className="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between flex-shrink-0">
+      <div className="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
           <Button
             variant="ghost"
@@ -214,7 +343,7 @@ export default function SandboxRepl() {
       </div>
 
       {/* Input Area */}
-      <div className="bg-gray-800 border-t border-gray-700 p-4 flex-shrink-0">
+      <div className="bg-gray-800 border-t border-gray-700 p-4 shrink-0">
         <div className="flex gap-2">
           <div className="flex-1 relative">
             <input

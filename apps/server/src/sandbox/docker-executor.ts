@@ -117,52 +117,105 @@ export const executeCommand = async (id: string, command: string) => {
 };
 
 export const startRepl = async (id: string) => {
-  const container = docker.getContainer(id);
+  console.log(`[DOCKER REPL] Starting REPL for container: ${id}`);
 
-  const exec = await container.exec({
-    Cmd: ["/bin/sh"],
-    AttachStderr: true,
-    AttachStdin: true,
-    AttachStdout: true,
-    Tty: true,
-  });
+  try {
+    const container = docker.getContainer(id);
+    console.log(`[DOCKER REPL] Got container reference for: ${id}`);
 
-  const stream = await exec.start({
-    hijack: true,
-    stdin: true,
-  });
+    console.log(`[DOCKER REPL] Creating exec instance for container: ${id}`);
+    const exec = await container.exec({
+      Cmd: ["/bin/sh"],
+      AttachStderr: true,
+      AttachStdin: true,
+      AttachStdout: true,
+      Tty: true,
+    });
+    console.log(`[DOCKER REPL] Exec instance created for container: ${id}`);
 
-  const emitter = new EventEmitter();
+    console.log(`[DOCKER REPL] Starting exec stream for container: ${id}`);
+    const stream = await exec.start({
+      hijack: true,
+      stdin: true,
+    });
+    console.log(`[DOCKER REPL] Exec stream started for container: ${id}`);
 
-  stream.on("data", (chunk: Buffer) => {
-    const rawData = chunk.toString();
-    const cleanData = cleanTerminalOutput(rawData);
+    const emitter = new EventEmitter();
+    console.log(`[DOCKER REPL] EventEmitter created for container: ${id}`);
 
-    // Only emit if there's actual content after cleaning
-    if (cleanData) {
-      emitter.emit("output", cleanData);
-    }
-  });
+    stream.on("data", (chunk: Buffer) => {
+      const rawData = chunk.toString();
+      console.log(
+        `[DOCKER REPL] Raw data received from container ${id}:`,
+        rawData
+      );
+      const cleanData = cleanTerminalOutput(rawData);
+      console.log(`[DOCKER REPL] Cleaned data for container ${id}:`, cleanData);
 
-  stream.on("end", () => {
-    emitter.emit("end");
-  });
+      // Only emit if there's actual content after cleaning
+      if (cleanData) {
+        console.log(
+          `[DOCKER REPL] Emitting output for container ${id}:`,
+          cleanData
+        );
+        emitter.emit("output", cleanData);
+      }
+    });
 
-  const sessionId = crypto.randomUUID();
+    stream.on("end", () => {
+      console.log(`[DOCKER REPL] Stream ended for container: ${id}`);
+      emitter.emit("end");
+    });
 
-  replSessions.set(sessionId, { stream, emitter });
+    stream.on("error", (error) => {
+      console.error(`[DOCKER REPL] Stream error for container ${id}:`, error);
+      emitter.emit("error", error);
+    });
 
-  return { sessionId, emitter };
+    const sessionId = crypto.randomUUID();
+    console.log(
+      `[DOCKER REPL] Generated sessionId: ${sessionId} for container: ${id}`
+    );
+
+    replSessions.set(sessionId, { stream, emitter });
+    console.log(
+      `[DOCKER REPL] Session stored for sessionId: ${sessionId}, container: ${id}`
+    );
+    console.log(`[DOCKER REPL] Total active sessions: ${replSessions.size}`);
+
+    return { sessionId, emitter };
+  } catch (error) {
+    console.error(
+      `[DOCKER REPL] Error starting REPL for container ${id}:`,
+      error
+    );
+    throw error;
+  }
 };
 
 export const writeToRepl = (sessionId: string, input: string) => {
+  console.log(
+    `[DOCKER REPL] Writing input to sessionId: ${sessionId}, input: "${input}"`
+  );
+
   const session = replSessions.get(sessionId);
+  console.log(
+    `[DOCKER REPL] Session lookup for sessionId ${sessionId}:`,
+    session ? "found" : "not found"
+  );
 
   if (!session) {
+    console.error(
+      `[DOCKER REPL] Session not found for sessionId: ${sessionId}`
+    );
     throw new Error("REPL session not found");
   }
 
+  console.log(`[DOCKER REPL] Writing to stream for sessionId: ${sessionId}`);
   session.stream.write(input + "\n");
+  console.log(
+    `[DOCKER REPL] Input written successfully for sessionId: ${sessionId}`
+  );
 };
 
 export const stopRepl = (sessionId: string) => {
@@ -177,5 +230,16 @@ export const stopRepl = (sessionId: string) => {
 };
 
 export const getReplEmitter = (sessionId: string): EventEmitter | undefined => {
-  return replSessions.get(sessionId)?.emitter;
+  console.log(`[DOCKER REPL] Getting emitter for sessionId: ${sessionId}`);
+  const session = replSessions.get(sessionId);
+  console.log(
+    `[DOCKER REPL] Session found for sessionId ${sessionId}:`,
+    session ? "yes" : "no"
+  );
+  console.log(`[DOCKER REPL] Total active sessions: ${replSessions.size}`);
+  console.log(
+    `[DOCKER REPL] Active sessionIds:`,
+    Array.from(replSessions.keys())
+  );
+  return session?.emitter;
 };

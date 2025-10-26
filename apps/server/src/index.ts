@@ -175,8 +175,10 @@ app.post("/sandbox/:id/exec", async (req, res) => {
 // live interation with sandbox with sse
 app.post("/sandbox/:id/repl/start", async (req, res) => {
   const sandboxId = req.params.id;
+  console.log(`[REPL START] Received request for sandbox ID: ${sandboxId}`);
 
   try {
+    console.log(`[REPL START] Looking up sandbox in database...`);
     const sandbox = await dbClient.sandbox.findFirst({
       where: {
         id: sandboxId,
@@ -184,7 +186,20 @@ app.post("/sandbox/:id/repl/start", async (req, res) => {
       },
     });
 
+    console.log(
+      `[REPL START] Sandbox lookup result:`,
+      sandbox
+        ? {
+            id: sandbox.id,
+            containerId: sandbox.containerId,
+            status: sandbox.status,
+            createdAt: sandbox.createdAt,
+          }
+        : "null"
+    );
+
     if (!sandbox) {
+      console.log(`[REPL START] ERROR: Sandbox not found or not active`);
       res.status(401).json({
         message: "Sandbox does not exist or is not active",
         success: false,
@@ -192,16 +207,22 @@ app.post("/sandbox/:id/repl/start", async (req, res) => {
       return;
     }
 
+    console.log(
+      `[REPL START] Starting REPL for container: ${sandbox.containerId}`
+    );
     const { sessionId } = await startRepl(sandbox.containerId);
+    console.log(
+      `[REPL START] REPL started successfully with sessionId: ${sessionId}`
+    );
 
     res.json({
       success: true,
       sessionId,
     });
   } catch (err) {
-    console.log(err);
+    console.error(`[REPL START] ERROR:`, err);
     res.status(400).json({
-      err,
+      err: err instanceof Error ? err.message : err,
       success: false,
       message: "Failed to start REPL",
     });
@@ -210,10 +231,18 @@ app.post("/sandbox/:id/repl/start", async (req, res) => {
 
 app.get("/sandbox/repl/:sessionId/stream", async (req, res) => {
   const sessionId = req.params.sessionId;
+  console.log(`[REPL STREAM] Received SSE request for sessionId: ${sessionId}`);
 
   const emitter = getReplEmitter(sessionId);
+  console.log(
+    `[REPL STREAM] Emitter lookup result:`,
+    emitter ? "found" : "not found"
+  );
 
   if (!emitter) {
+    console.log(
+      `[REPL STREAM] ERROR: Session not found for sessionId: ${sessionId}`
+    );
     res.status(401).json({
       message: "Session not found",
       success: false,
@@ -221,26 +250,45 @@ app.get("/sandbox/repl/:sessionId/stream", async (req, res) => {
     return;
   }
 
+  console.log(
+    `[REPL STREAM] Setting up SSE headers and connection for sessionId: ${sessionId}`
+  );
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader(
+    "Access-Control-Allow-Origin",
+    process.env.FRONTEND_URL || "http://localhost:5173"
+  );
+  res.setHeader("Access-Control-Allow-Credentials", "true");
 
   res.write('data: {"type": "connected"}\n\n');
+  console.log(
+    `[REPL STREAM] Sent initial connection message for sessionId: ${sessionId}`
+  );
 
   const outputHandler = (data: string) => {
-    console.log(data);
+    console.log(
+      `[REPL STREAM] Output received for sessionId ${sessionId}:`,
+      data
+    );
     res.write(`data: ${JSON.stringify({ type: "output", data })}\n\n`);
   };
 
   const endHandler = () => {
+    console.log(`[REPL STREAM] End event received for sessionId: ${sessionId}`);
     res.write('data: {"type": "end"}\n\n');
     res.end();
   };
 
   emitter.on("output", outputHandler);
   emitter.on("end", endHandler);
+  console.log(
+    `[REPL STREAM] Event listeners attached for sessionId: ${sessionId}`
+  );
 
   res.on("close", () => {
+    console.log(`[REPL STREAM] Connection closed for sessionId: ${sessionId}`);
     emitter.off("output", outputHandler);
     emitter.off("end", endHandler);
   });
@@ -249,9 +297,15 @@ app.get("/sandbox/repl/:sessionId/stream", async (req, res) => {
 app.post("/sandbox/repl/:sessionId/input", async (req, res) => {
   const sessionId = req.params.sessionId;
   const { input } = req.body;
+  console.log(
+    `[REPL INPUT] Received input for sessionId: ${sessionId}, input: "${input}"`
+  );
 
   try {
     if (!input) {
+      console.log(
+        `[REPL INPUT] ERROR: No input provided for sessionId: ${sessionId}`
+      );
       res.status(400).json({
         message: "Input is required",
         success: false,
@@ -259,16 +313,22 @@ app.post("/sandbox/repl/:sessionId/input", async (req, res) => {
       return;
     }
 
+    console.log(
+      `[REPL INPUT] Writing input to REPL for sessionId: ${sessionId}`
+    );
     writeToRepl(sessionId, input);
+    console.log(
+      `[REPL INPUT] Input written successfully for sessionId: ${sessionId}`
+    );
 
     res.json({
       success: true,
       message: "Input sent successfully",
     });
   } catch (err) {
-    console.log(err);
+    console.error(`[REPL INPUT] ERROR for sessionId ${sessionId}:`, err);
     res.status(400).json({
-      err,
+      err: err instanceof Error ? err.message : err,
       success: false,
       message: "Failed to send input",
     });

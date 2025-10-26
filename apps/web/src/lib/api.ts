@@ -29,6 +29,12 @@ class ApiClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
+    console.log(`[API] Making request to: ${url}`, {
+      method: options.method || "GET",
+      headers: options.headers,
+      body: options.body,
+    });
+
     const response = await fetch(url, {
       headers: {
         "Content-Type": "application/json",
@@ -37,13 +43,29 @@ class ApiClient {
       ...options,
     });
 
+    console.log(`[API] Response received:`, {
+      url,
+      status: response.status,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers.entries()),
+    });
+
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[API] Request failed:`, {
+        url,
+        status: response.status,
+        statusText: response.statusText,
+        errorBody: errorText,
+      });
       throw new Error(
-        `API request failed: ${response.status} ${response.statusText}`
+        `API request failed: ${response.status} ${response.statusText} - ${errorText}`
       );
     }
 
-    return response.json();
+    const responseData = await response.json();
+    console.log(`[API] Response data:`, responseData);
+    return responseData;
   }
 
   // Sandbox CRUD operations
@@ -98,7 +120,9 @@ class ApiClient {
 
   // SSE connection for REPL output
   createReplStream(sessionId: string): EventSource {
-    return new EventSource(`${this.baseUrl}/sandbox/repl/${sessionId}/stream`);
+    const url = `${this.baseUrl}/sandbox/repl/${sessionId}/stream`;
+    console.log(`[API] Creating EventSource for REPL stream: ${url}`);
+    return new EventSource(url);
   }
 }
 
