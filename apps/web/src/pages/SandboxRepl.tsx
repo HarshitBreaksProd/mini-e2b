@@ -16,8 +16,24 @@ export default function SandboxRepl() {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState<string[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+
+  // Log sessionId changes
+  useEffect(() => {
+    console.log(`[CLIENT] sessionId state changed to: ${sessionId}`);
+  }, [sessionId]);
+
   const [isConnected, setIsConnected] = useState(false);
   const [isReplActive, setIsReplActive] = useState(false);
+
+  // Log component mount and initial state
+  useEffect(() => {
+    console.log(
+      `[CLIENT] SandboxRepl component mounted with sandboxId: ${sandboxId}`
+    );
+    console.log(
+      `[CLIENT] Initial state - sessionId: ${sessionId}, isReplActive: ${isReplActive}, isConnected: ${isConnected}`
+    );
+  }, []);
 
   const outputRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -58,6 +74,7 @@ export default function SandboxRepl() {
     },
     onSuccess: (data) => {
       console.log(`[CLIENT] REPL started successfully:`, data);
+      console.log(`[CLIENT] Setting sessionId to: ${data.sessionId}`);
       setSessionId(data.sessionId);
       setIsReplActive(true);
     },
@@ -120,18 +137,27 @@ export default function SandboxRepl() {
 
   // Start REPL session on mount
   useEffect(() => {
+    console.log(
+      `[CLIENT] REPL start useEffect triggered - sandboxId: ${sandboxId}, isReplActive: ${isReplActive}, currentSandbox: ${currentSandbox ? "exists" : "null"}`
+    );
+
     if (
       sandboxId &&
       !isReplActive &&
       currentSandbox &&
       currentSandbox.status === "active"
     ) {
+      console.log(`[CLIENT] Starting REPL mutation for sandbox: ${sandboxId}`);
       startReplMutation.mutate();
     }
   }, [sandboxId, currentSandbox, isReplActive]);
 
   // Set up SSE connection when session is available
   useEffect(() => {
+    console.log(
+      `[CLIENT] SSE useEffect triggered - sessionId: ${sessionId}, eventSourceRef.current: ${eventSourceRef.current ? "exists" : "null"}`
+    );
+
     if (sessionId && !eventSourceRef.current) {
       console.log(
         `[CLIENT] Setting up SSE connection for sessionId: ${sessionId}`
@@ -219,14 +245,32 @@ export default function SandboxRepl() {
     }
   });
 
-  // Cleanup on unmount
+  // Cleanup on unmount or sandboxId change
   useEffect(() => {
     return () => {
+      console.log(
+        `[CLIENT] Cleanup effect triggered - sessionId: ${sessionId}, isReplActive: ${isReplActive}`
+      );
       if (sessionId && isReplActive) {
+        console.log(
+          `[CLIENT] Stopping REPL on cleanup for sessionId: ${sessionId}`
+        );
         stopReplMutation.mutate();
       }
     };
-  }, []);
+  }, [sandboxId]); // Reset when sandboxId changes
+
+  // Reset state when sandboxId changes
+  useEffect(() => {
+    console.log(`[CLIENT] SandboxId changed to: ${sandboxId}, resetting state`);
+    setSessionId(null);
+    setIsReplActive(false);
+    setIsConnected(false);
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  }, [sandboxId]);
 
   const handleSendCommand = () => {
     if (input.trim() && sessionId && isConnected) {
