@@ -30,6 +30,7 @@ app.use(
 
 //get all sandboxes
 app.get("/sandbox", async (req, res) => {
+  console.log("[SERVER GET] Fetching active sandboxes...");
   try {
     const sandboxes = await dbClient.sandbox.findMany({
       where: {
@@ -40,12 +41,18 @@ app.get("/sandbox", async (req, res) => {
       },
     });
 
+    console.log("[SERVER GET] Found active sandboxes:", sandboxes.length);
+    console.log(
+      "[SERVER GET] Sandbox IDs:",
+      sandboxes.map((s) => s.id)
+    );
+
     res.json({
       success: true,
       sandboxes,
     });
   } catch (err) {
-    console.log(err);
+    console.error("[SERVER GET] ERROR:", err);
     res.status(400).json({
       err,
       success: false,
@@ -80,15 +87,19 @@ app.post("/sandbox", async (req, res) => {
 //delete sandbox
 app.delete("/sandbox", async (req, res) => {
   const sandboxId = req.query.id?.toString();
-
-  console.log("sandboxId:", sandboxId);
+  console.log(
+    "[SERVER DELETE] Received delete request for sandboxId:",
+    sandboxId
+  );
 
   try {
     if (!sandboxId) {
+      console.log("[SERVER DELETE] ERROR: No sandbox ID provided");
       res.status(401).json({ message: "no sandbox id shared", success: false });
       return;
     }
 
+    console.log("[SERVER DELETE] Looking up sandbox in database...");
     const sandbox = await dbClient.sandbox.findFirst({
       where: {
         id: sandboxId,
@@ -96,15 +107,24 @@ app.delete("/sandbox", async (req, res) => {
       },
     });
 
+    console.log(
+      "[SERVER DELETE] Sandbox lookup result:",
+      sandbox ? "found" : "not found"
+    );
+
     if (!sandbox) {
+      console.log("[SERVER DELETE] ERROR: Sandbox not found or not active");
       res
         .status(401)
         .json({ message: "invalid sandbox id shared", success: false });
       return;
     }
 
+    console.log("[SERVER DELETE] Deleting container:", sandbox.containerId);
     await deleteContainer(sandbox?.containerId);
+    console.log("[SERVER DELETE] Container deleted successfully");
 
+    console.log("[SERVER DELETE] Updating sandbox status to 'deleted'...");
     await dbClient.sandbox.update({
       where: {
         id: sandboxId,
@@ -113,13 +133,15 @@ app.delete("/sandbox", async (req, res) => {
         status: "deleted",
       },
     });
+    console.log("[SERVER DELETE] Sandbox status updated to 'deleted'");
 
+    console.log("[SERVER DELETE] Sending success response");
     res.json({
       message: "Deleted the sandbox successfully",
       success: true,
     });
   } catch (err) {
-    console.log(err);
+    console.error("[SERVER DELETE] ERROR:", err);
     res.status(400).json({
       err,
       success: false,

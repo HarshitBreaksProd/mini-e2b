@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { apiClient } from "../lib/api";
 import type { Sandbox } from "../types";
 import { Button } from "../components/ui/button";
@@ -15,6 +16,9 @@ import { Plus, Trash2, Terminal } from "lucide-react";
 export default function SandboxList() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [deletingSandboxId, setDeletingSandboxId] = useState<string | null>(
+    null
+  );
 
   // Fetch sandboxes
   const {
@@ -23,7 +27,18 @@ export default function SandboxList() {
     error,
   } = useQuery({
     queryKey: ["sandboxes"],
-    queryFn: () => apiClient.getSandboxes(),
+    queryFn: () => {
+      console.log("[QUERY] Fetching sandboxes...");
+      const result = apiClient.getSandboxes();
+      result
+        .then((data) => {
+          console.log("[QUERY] Sandboxes fetched successfully:", data);
+        })
+        .catch((err) => {
+          console.error("[QUERY] Fetch failed:", err);
+        });
+      return result;
+    },
   });
 
   // Create sandbox mutation
@@ -36,13 +51,31 @@ export default function SandboxList() {
 
   // Delete sandbox mutation
   const deleteSandboxMutation = useMutation({
-    mutationFn: (sandboxId: string) => apiClient.deleteSandbox(sandboxId),
-    onSuccess: () => {
+    mutationFn: (sandboxId: string) => {
+      console.log("[DELETE] Starting deletion for sandboxId:", sandboxId);
+      setDeletingSandboxId(sandboxId);
+      return apiClient.deleteSandbox(sandboxId);
+    },
+    onSuccess: (data) => {
+      console.log("[DELETE] Deletion successful:", data);
+      console.log("[DELETE] Invalidating queries...");
       // Invalidate all sandbox-related queries
       queryClient.invalidateQueries({ queryKey: ["sandboxes"] });
       queryClient.invalidateQueries({ queryKey: ["sandbox"] });
+      console.log("[DELETE] Queries invalidated");
+      setDeletingSandboxId(null);
+    },
+    onError: (error) => {
+      console.error("[DELETE] Deletion failed:", error);
+      setDeletingSandboxId(null);
     },
   });
+
+  // Track when sandboxes data changes
+  useEffect(() => {
+    console.log("[DATA] Sandboxes data changed:", sandboxesData);
+    console.log("[DATA] Sandboxes count:", sandboxesData?.sandboxes?.length);
+  }, [sandboxesData]);
 
   const handleCreateSandbox = () => {
     createSandboxMutation.mutate();
@@ -51,7 +84,11 @@ export default function SandboxList() {
   const handleDeleteSandbox = (sandboxId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm("Are you sure you want to delete this sandbox?")) {
-      deleteSandboxMutation.mutate(sandboxId);
+      deleteSandboxMutation.mutate(sandboxId, {
+        onSuccess: () => {
+          console.log("[DELETE] Successfully deleted sandbox:", sandboxId);
+        },
+      });
     }
   };
 
@@ -129,9 +166,23 @@ export default function SandboxList() {
             {sandboxes.map((sandbox: Sandbox) => (
               <Card
                 key={sandbox.id}
-                className="cursor-pointer hover:shadow-lg transition-shadow duration-200 bg-white"
+                className={`cursor-pointer hover:shadow-lg transition-shadow duration-200 bg-white relative ${
+                  deletingSandboxId === sandbox.id
+                    ? "opacity-50 pointer-events-none"
+                    : ""
+                }`}
                 onClick={() => handleSandboxClick(sandbox.id)}
               >
+                {deletingSandboxId === sandbox.id && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75 rounded-lg z-10">
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
+                      <span className="text-sm text-gray-600 font-medium">
+                        Deleting...
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <CardHeader className="pb-3">
                   <div className="flex justify-between items-start">
                     <CardTitle className="text-lg font-medium text-gray-900 truncate">
@@ -141,8 +192,8 @@ export default function SandboxList() {
                       variant="ghost"
                       size="sm"
                       onClick={(e) => handleDeleteSandbox(sandbox.id, e)}
-                      disabled={deleteSandboxMutation.isPending}
-                      className="h-8 w-8 p-0 text-gray-400 hover:text-red-600"
+                      disabled={deletingSandboxId === sandbox.id}
+                      className="h-8 w-8 p-0 text-gray-400 hover:text-red-600 disabled:opacity-50"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
