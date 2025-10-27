@@ -15,36 +15,6 @@ const replSessions = new Map<
   }
 >();
 
-const waitForVMReady = async (
-  vmName: string,
-  maxAttempts = 100,
-  delayMs = 500
-) => {
-  for (let i = 0; i < maxAttempts; i++) {
-    try {
-      const { stdout } = await execAsync(
-        `ignite ps --filter "{{.Name}}==${vmName}" --template "{{.Status}}"`
-      );
-      const status = stdout.trim();
-
-      console.log(`[FIRECRACKER] VM ${vmName} status: ${status}`);
-
-      if (status === "running" || status === "Running") {
-        console.log(`[FIRECRACKER] VM ${vmName} is ready!`);
-        return;
-      }
-    } catch (error) {
-      console.log(error);
-      console.log("Error in vm ready status polling");
-    }
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-  }
-
-  throw new Error(
-    `VM ${vmName} did not become ready within ${maxAttempts} attempts`
-  );
-};
-
 export const createContainer = async () => {
   const vmName = `vm-${crypto.randomUUID().substring(0, 8)}`;
 
@@ -52,8 +22,6 @@ export const createContainer = async () => {
 
   try {
     await execAsync(command);
-
-    await waitForVMReady(vmName);
 
     console.log(`[FIRECRACKER] VM ${vmName} created successfully`);
 
