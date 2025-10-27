@@ -82,13 +82,21 @@ export const startRepl = async (vmName: string) => {
   const sessionId = crypto.randomUUID().substring(0, 8);
   const emitter = new EventEmitter();
 
-  const replProcess = spawn("ignite", ["exec", vmName, "--", "/bin/bash"], {
+  const replProcess = spawn("ignite", ["exec", vmName, "--", "bash"], {
     stdio: ["pipe", "pipe", "pipe"],
   });
 
   replProcess.stdout.on("data", (chunk: Buffer) => {
     const data = chunk.toString();
+    console.log(
+      `[FIRECRACKER] Raw stdout for session ${sessionId}:`,
+      JSON.stringify(data)
+    );
     const cleaned = cleanTerminalOutput(data);
+    console.log(
+      `[FIRECRACKER] Cleaned stdout for session ${sessionId}:`,
+      JSON.stringify(cleaned)
+    );
     if (cleaned) {
       emitter.emit("output", cleaned);
     }
