@@ -54,7 +54,7 @@ app.get("/sandbox", async (req, res) => {
 app.post("/sandbox", async (req, res) => {
   try {
     let containerId: string;
-    if (executor === "development") {
+    if (executor === "docker") {
       containerId = await dockerExecutor.createContainer();
     } else {
       // set firecracker here
@@ -103,7 +103,7 @@ app.delete("/sandbox", async (req, res) => {
       return;
     }
 
-    if (executor === "development") {
+    if (executor === "docker") {
       await dockerExecutor.deleteContainer(sandbox?.containerId);
     } else {
       await firecrackerExecutor.deleteContainer(sandbox?.containerId);
@@ -161,7 +161,7 @@ app.post("/sandbox/:id/exec", async (req, res) => {
     }
 
     let result;
-    if (executor === "development") {
+    if (executor === "docker") {
       result = await dockerExecutor.executeCommand(
         sandbox.containerId,
         command
@@ -192,50 +192,53 @@ app.post("/sandbox/:id/repl/start", async (req, res) => {
   const sandboxId = req.params.id;
 
   try {
-    if (executor === "development") {
-      const sandbox = await dbClient.sandbox.findFirst({
-        where: {
-          id: sandboxId,
-          status: "active",
-        },
+    const sandbox = await dbClient.sandbox.findFirst({
+      where: {
+        id: sandboxId,
+        status: "active",
+      },
+    });
+
+    console.log(
+      `[REPL START] Sandbox lookup result:`,
+      sandbox
+        ? {
+            id: sandbox.id,
+            containerId: sandbox.containerId,
+            status: sandbox.status,
+            createdAt: sandbox.createdAt,
+          }
+        : "null"
+    );
+
+    if (!sandbox) {
+      console.log(`[REPL START] ERROR: Sandbox not found or not active`);
+      res.status(401).json({
+        message: "Sandbox does not exist or is not active",
+        success: false,
       });
-
-      console.log(
-        `[REPL START] Sandbox lookup result:`,
-        sandbox
-          ? {
-              id: sandbox.id,
-              containerId: sandbox.containerId,
-              status: sandbox.status,
-              createdAt: sandbox.createdAt,
-            }
-          : "null"
-      );
-
-      if (!sandbox) {
-        console.log(`[REPL START] ERROR: Sandbox not found or not active`);
-        res.status(401).json({
-          message: "Sandbox does not exist or is not active",
-          success: false,
-        });
-        return;
-      }
-
-      console.log(
-        `[REPL START] Starting REPL for container: ${sandbox.containerId}`
-      );
-      const { sessionId } = await dockerExecutor.startRepl(sandbox.containerId);
-      console.log(
-        `[REPL START] REPL started successfully with sessionId: ${sessionId}`
-      );
-
-      res.json({
-        success: true,
-        sessionId,
-      });
-    } else {
-      // start repl on firecracker here
+      return;
     }
+
+    console.log(
+      `[REPL START] Starting REPL for container: ${sandbox.containerId}`
+    );
+    let sessionId;
+    if (executor === "docker") {
+      const result = await dockerExecutor.startRepl(sandbox.containerId);
+      sessionId = result.sessionId;
+    } else {
+      const result = await firecrackerExecutor.startRepl(sandbox.containerId);
+      sessionId = result.sessionId;
+    }
+    console.log(
+      `[REPL START] REPL started successfully with sessionId: ${sessionId}`
+    );
+
+    res.json({
+      success: true,
+      sessionId,
+    });
   } catch (err) {
     console.error(`[REPL START] ERROR:`, err);
     res.status(400).json({
@@ -255,166 +258,160 @@ app.options("/sandbox/repl/:sessionId/stream", (req, res) => {
 });
 
 app.get("/sandbox/repl/:sessionId/stream", async (req, res) => {
-  if (executor === "development") {
-    const sessionId = req.params.sessionId;
-    console.log(
-      `[REPL STREAM] Received SSE request for sessionId: ${sessionId}`
-    );
+  const sessionId = req.params.sessionId;
+  console.log(`[REPL STREAM] Received SSE request for sessionId: ${sessionId}`);
 
-    const emitter = dockerExecutor.getReplEmitter(sessionId);
-    console.log(
-      `[REPL STREAM] Emitter lookup result:`,
-      emitter ? "found" : "not found"
-    );
+  let emitter;
+  if (executor === "docker") {
+    emitter = dockerExecutor.getReplEmitter(sessionId);
+  } else {
+    emitter = firecrackerExecutor.getReplEmitter(sessionId);
+  }
+  console.log(
+    `[REPL STREAM] Emitter lookup result:`,
+    emitter ? "found" : "not found"
+  );
 
-    if (!emitter) {
+  if (!emitter) {
+    console.log(
+      `[REPL STREAM] ERROR: Session not found for sessionId: ${sessionId}`
+    );
+    res.status(401).json({
+      message: "Session not found",
+      success: false,
+    });
+    return;
+  }
+
+  console.log(
+    `[REPL STREAM] Setting up SSE headers and connection for sessionId: ${sessionId}`
+  );
+
+  // Set basic CORS headers for SSE
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  // Set SSE headers
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
+
+  res.write('data: {"type": "connected"}\n\n');
+  console.log(
+    `[REPL STREAM] Sent initial connection message for sessionId: ${sessionId}`
+  );
+
+  const outputHandler = (data: string) => {
+    console.log(
+      `[REPL STREAM] Output received for sessionId ${sessionId}:`,
+      data
+    );
+    res.write(`data: ${JSON.stringify({ type: "output", data })}\n\n`);
+  };
+
+  const endHandler = () => {
+    console.log(`[REPL STREAM] End event received for sessionId: ${sessionId}`);
+    res.write('data: {"type": "end"}\n\n');
+    res.end();
+  };
+
+  emitter.on("output", outputHandler);
+  emitter.on("end", endHandler);
+  console.log(
+    `[REPL STREAM] Event listeners attached for sessionId: ${sessionId}`
+  );
+
+  res.on("close", () => {
+    console.log(`[REPL STREAM] Connection closed for sessionId: ${sessionId}`);
+    emitter.off("output", outputHandler);
+    emitter.off("end", endHandler);
+  });
+
+  res.on("error", (error) => {
+    console.error(
+      `[REPL STREAM] Connection error for sessionId ${sessionId}:`,
+      error
+    );
+    emitter.off("output", outputHandler);
+    emitter.off("end", endHandler);
+  });
+
+  req.on("close", () => {
+    console.log(
+      `[REPL STREAM] Client disconnected for sessionId: ${sessionId}`
+    );
+    emitter.off("output", outputHandler);
+    emitter.off("end", endHandler);
+  });
+});
+
+app.post("/sandbox/repl/:sessionId/input", async (req, res) => {
+  const sessionId = req.params.sessionId;
+  const { input } = req.body;
+  console.log(
+    `[REPL INPUT] Received input for sessionId: ${sessionId}, input: "${input}"`
+  );
+
+  try {
+    if (!input) {
       console.log(
-        `[REPL STREAM] ERROR: Session not found for sessionId: ${sessionId}`
+        `[REPL INPUT] ERROR: No input provided for sessionId: ${sessionId}`
       );
-      res.status(401).json({
-        message: "Session not found",
+      res.status(400).json({
+        message: "Input is required",
         success: false,
       });
       return;
     }
 
     console.log(
-      `[REPL STREAM] Setting up SSE headers and connection for sessionId: ${sessionId}`
+      `[REPL INPUT] Writing input to REPL for sessionId: ${sessionId}`
     );
-
-    // Set basic CORS headers for SSE
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-    // Set SSE headers
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
-
-    res.write('data: {"type": "connected"}\n\n');
-    console.log(
-      `[REPL STREAM] Sent initial connection message for sessionId: ${sessionId}`
-    );
-
-    const outputHandler = (data: string) => {
-      console.log(
-        `[REPL STREAM] Output received for sessionId ${sessionId}:`,
-        data
-      );
-      res.write(`data: ${JSON.stringify({ type: "output", data })}\n\n`);
-    };
-
-    const endHandler = () => {
-      console.log(
-        `[REPL STREAM] End event received for sessionId: ${sessionId}`
-      );
-      res.write('data: {"type": "end"}\n\n');
-      res.end();
-    };
-
-    emitter.on("output", outputHandler);
-    emitter.on("end", endHandler);
-    console.log(
-      `[REPL STREAM] Event listeners attached for sessionId: ${sessionId}`
-    );
-
-    res.on("close", () => {
-      console.log(
-        `[REPL STREAM] Connection closed for sessionId: ${sessionId}`
-      );
-      emitter.off("output", outputHandler);
-      emitter.off("end", endHandler);
-    });
-
-    res.on("error", (error) => {
-      console.error(
-        `[REPL STREAM] Connection error for sessionId ${sessionId}:`,
-        error
-      );
-      emitter.off("output", outputHandler);
-      emitter.off("end", endHandler);
-    });
-
-    // Handle client disconnect
-    req.on("close", () => {
-      console.log(
-        `[REPL STREAM] Client disconnected for sessionId: ${sessionId}`
-      );
-      emitter.off("output", outputHandler);
-      emitter.off("end", endHandler);
-    });
-  } else {
-    // stream repl on firecracker here
-  }
-});
-
-app.post("/sandbox/repl/:sessionId/input", async (req, res) => {
-  if (executor === "development") {
-    const sessionId = req.params.sessionId;
-    const { input } = req.body;
-    console.log(
-      `[REPL INPUT] Received input for sessionId: ${sessionId}, input: "${input}"`
-    );
-
-    try {
-      if (!input) {
-        console.log(
-          `[REPL INPUT] ERROR: No input provided for sessionId: ${sessionId}`
-        );
-        res.status(400).json({
-          message: "Input is required",
-          success: false,
-        });
-        return;
-      }
-
-      console.log(
-        `[REPL INPUT] Writing input to REPL for sessionId: ${sessionId}`
-      );
+    if (executor === "docker") {
       dockerExecutor.writeToRepl(sessionId, input);
-      console.log(
-        `[REPL INPUT] Input written successfully for sessionId: ${sessionId}`
-      );
-
-      res.json({
-        success: true,
-        message: "Input sent successfully",
-      });
-    } catch (err) {
-      console.error(`[REPL INPUT] ERROR for sessionId ${sessionId}:`, err);
-      res.status(400).json({
-        err: err instanceof Error ? err.message : err,
-        success: false,
-        message: "Failed to send input",
-      });
+    } else {
+      firecrackerExecutor.writeToRepl(sessionId, input);
     }
-  } else {
-    // send input to firecracker here
+    console.log(
+      `[REPL INPUT] Input written successfully for sessionId: ${sessionId}`
+    );
+
+    res.json({
+      success: true,
+      message: "Input sent successfully",
+    });
+  } catch (err) {
+    console.error(`[REPL INPUT] ERROR for sessionId ${sessionId}:`, err);
+    res.status(400).json({
+      err: err instanceof Error ? err.message : err,
+      success: false,
+      message: "Failed to send input",
+    });
   }
 });
 
 app.delete("/sandbox/repl/:sessionId", async (req, res) => {
-  if (executor === "development") {
-    const sessionId = req.params.sessionId;
+  const sessionId = req.params.sessionId;
 
-    try {
+  try {
+    if (executor === "docker") {
       dockerExecutor.stopRepl(sessionId);
-      res.json({
-        success: true,
-        message: "REPL stopped successfully",
-      });
-    } catch (err) {
-      console.log(err);
-      res.status(400).json({
-        err,
-        success: false,
-        message: "Failed to stop REPL",
-      });
+    } else {
+      firecrackerExecutor.stopRepl(sessionId);
     }
-  } else {
-    // stop repl on firecracker here
+    res.json({
+      success: true,
+      message: "REPL stopped successfully",
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).json({
+      err,
+      success: false,
+      message: "Failed to stop REPL",
+    });
   }
 });
 

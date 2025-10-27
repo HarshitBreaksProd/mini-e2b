@@ -13,7 +13,7 @@ const replSessions = new Map<
 >();
 
 // Function to clean terminal output data
-const cleanTerminalOutput = (data: string): string => {
+export const cleanTerminalOutput = (data: string): string => {
   return data
     .replace(/\u0001/g, "") // Remove SOH (Start of Heading)
     .replace(/\u0000/g, "") // Remove NULL characters

@@ -2,7 +2,8 @@ import { exec, execSync, spawn } from "child_process";
 import { promisify } from "util";
 import { EventEmitter } from "events";
 import crypto from "crypto";
-import { exitCode, stderr } from "process";
+import { emit, exitCode, stderr } from "process";
+import { cleanTerminalOutput } from "./docker-executor";
 
 const execAsync = promisify(exec);
 
@@ -72,3 +73,65 @@ export const executeCommand = async (vmName: string, command: string) => {
     };
   }
 };
+
+export const startRepl = async (vmName: string) => {
+  const sessionId = crypto.randomUUID().substring(0, 8);
+  const emitter = new EventEmitter();
+
+  const replProcess = spawn("ignite", ["attach", vmName], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  replProcess.stdout.on("data", (chunk: Buffer) => {
+    const data = chunk.toString();
+    const cleaned = cleanTerminalOutput(data);
+    if (cleaned) {
+      emitter.emit("output", cleaned);
+    }
+  });
+
+  replProcess.stderr.on("data", (chunk: Buffer) => {
+    const data = chunk.toString();
+    emitter.emit("output", data);
+  });
+
+  replProcess.on("close", () => {
+    emitter.emit("end");
+    replSessions.delete(sessionId);
+  });
+
+  replSessions.set(sessionId, {
+    vmName,
+    process: replProcess,
+    emitter,
+  });
+
+  return { sessionId, emitter };
+};
+
+export const writeToRepl = (sessionId:string, input: string) => {
+  const session = replSessions.get(sessionId);
+  if(!session){
+    throw new Error(`Session ${sessionId} not found`);
+  }
+  session.process.stdin.write(input + "\n");
+}
+
+
+export const stopRepl = (sessionId: string) => {
+  const session = replSessions.get(sessionId);
+  if(!session){
+    return;
+  }
+  session.process.kill();
+  replSessions.delete(sessionId);
+};
+
+export const getReplEmitter = (sessionId: string) => {
+  const session = replSessions.get(sessionId);
+  if(!session){
+    return;
+  }
+  return session.emitter;
+};
+
