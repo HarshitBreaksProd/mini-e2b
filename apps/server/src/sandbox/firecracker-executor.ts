@@ -17,6 +17,7 @@ const replSessions = new Map<
 >();
 
 export const createContainer = async () => {
+  console.log("Creating container on firecracker");
   const vmName = `vm-${crypto.randomUUID().substring(0, 8)}`;
 
   const command = `ignite run weaveworks/ignite-ubuntu:latest --name ${vmName} --cpus 1 --memory 512MB --size 5GB --ssh`;
@@ -34,6 +35,7 @@ export const createContainer = async () => {
 };
 
 export const deleteContainer = async (vmName: string) => {
+  console.log("Deleting container on firecracker");
   try {
     await execAsync(`ignite stop ${vmName}`);
 
@@ -47,6 +49,7 @@ export const deleteContainer = async (vmName: string) => {
 };
 
 export const executeCommand = async (vmName: string, command: string) => {
+  console.log("Executing command on firecracker");
   try {
     const escapedCommand = command.replace(/"/g, '\\"');
 
@@ -75,6 +78,7 @@ export const executeCommand = async (vmName: string, command: string) => {
 };
 
 export const startRepl = async (vmName: string) => {
+  console.log("Starting repl on firecracker");
   const sessionId = crypto.randomUUID().substring(0, 8);
   const emitter = new EventEmitter();
 
@@ -109,18 +113,19 @@ export const startRepl = async (vmName: string) => {
   return { sessionId, emitter };
 };
 
-export const writeToRepl = (sessionId:string, input: string) => {
+export const writeToRepl = (sessionId: string, input: string) => {
+  console.log("Writing to repl on firecracker");
   const session = replSessions.get(sessionId);
-  if(!session){
+  if (!session) {
     throw new Error(`Session ${sessionId} not found`);
   }
   session.process.stdin.write(input + "\n");
-}
-
+};
 
 export const stopRepl = (sessionId: string) => {
+  console.log("Stopping repl on firecracker");
   const session = replSessions.get(sessionId);
-  if(!session){
+  if (!session) {
     return;
   }
   session.process.kill();
@@ -128,10 +133,10 @@ export const stopRepl = (sessionId: string) => {
 };
 
 export const getReplEmitter = (sessionId: string) => {
+  console.log("Getting repl emitter on firecracker");
   const session = replSessions.get(sessionId);
-  if(!session){
+  if (!session) {
     return;
   }
   return session.emitter;
 };
-
