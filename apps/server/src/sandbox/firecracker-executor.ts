@@ -110,6 +110,13 @@ export const startRepl = async (vmName: string) => {
     emitter,
   });
 
+  console.log(`[FIRECRACKER] Stored sessionId: ${sessionId} for VM: ${vmName}`);
+  console.log(`[FIRECRACKER] replSessions after storing:`, replSessions);
+  console.log(
+    `[FIRECRACKER] Available sessionIds after storing:`,
+    Array.from(replSessions.keys())
+  );
+
   return { sessionId, emitter };
 };
 
@@ -134,8 +141,16 @@ export const stopRepl = (sessionId: string) => {
 
 export const getReplEmitter = (sessionId: string) => {
   console.log("Getting repl emitter on firecracker");
+  console.log(`[FIRECRACKER] Looking for sessionId: ${sessionId}`);
+  console.log(`[FIRECRACKER] Current replSessions map:`, replSessions);
+  console.log(
+    `[FIRECRACKER] Available sessionIds:`,
+    Array.from(replSessions.keys())
+  );
+
   const session = replSessions.get(sessionId);
   if (!session) {
+    console.log(`[FIRECRACKER] Session ${sessionId} not found`);
     return;
   }
   return session.emitter;
