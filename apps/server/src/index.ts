@@ -20,13 +20,14 @@ const app = express();
 // Middleware to parse JSON bodies
 app.use(express.json());
 
-// CORS disabled for proof of concept
-// app.use(
-//   cors({
-//     origin: process.env.FRONTEND_URL || "http://localhost:5173",
-//     credentials: true,
-//   })
-// );
+// Basic CORS for regular API calls (not SSE)
+app.use(
+  cors({
+    origin: "*", // Allow all origins for proof of concept
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 //get all sandboxes
 app.get("/sandbox", async (req, res) => {
@@ -251,8 +252,11 @@ app.post("/sandbox/:id/repl/start", async (req, res) => {
   }
 });
 
-// Handle OPTIONS preflight for SSE endpoint - CORS handled by nginx
+// Handle OPTIONS preflight for SSE endpoint
 app.options("/sandbox/repl/:sessionId/stream", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.status(200).end();
 });
 
@@ -281,7 +285,10 @@ app.get("/sandbox/repl/:sessionId/stream", async (req, res) => {
     `[REPL STREAM] Setting up SSE headers and connection for sessionId: ${sessionId}`
   );
 
-  // CORS headers are handled by nginx - don't set them here to avoid duplicates
+  // Set basic CORS headers for SSE
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   // Set SSE headers
   res.setHeader("Content-Type", "text/event-stream");
