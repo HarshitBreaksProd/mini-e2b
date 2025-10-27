@@ -1,15 +1,8 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import {
-  createContainer,
-  deleteContainer,
-  executeCommand,
-  getReplEmitter,
-  startRepl,
-  stopRepl,
-  writeToRepl,
-} from "./sandbox/docker-executor";
+import * as dockerExecutor from "./sandbox/docker-executor";
+import * as firecrackerExecutor from "./sandbox/firecracker-executor";
 import dbClient from "./db/index";
 
 // Load environment variables
@@ -60,20 +53,22 @@ app.get("/sandbox", async (req, res) => {
 //create sandbox
 app.post("/sandbox", async (req, res) => {
   try {
+    let containerId: string;
     if (nodeEnv === "development") {
-      const containerId = await createContainer();
-      const sandbox = await dbClient.sandbox.create({
-        data: { containerId, status: "active" },
-      });
-      console.log(sandbox);
-      res.json({
-        message: "Created new container",
-        success: true,
-        sandboxId: sandbox.id,
-      });
+      containerId = await dockerExecutor.createContainer();
     } else {
       // set firecracker here
+      containerId = await firecrackerExecutor.createContainer();
     }
+    const sandbox = await dbClient.sandbox.create({
+      data: { containerId, status: "active" },
+    });
+    console.log(sandbox);
+    res.json({
+      message: "Created new container",
+      success: true,
+      sandboxId: sandbox.id,
+    });
   } catch (err) {
     console.log(err);
     res.status(400).json({
@@ -89,45 +84,44 @@ app.delete("/sandbox", async (req, res) => {
   const sandboxId = req.query.id?.toString();
 
   try {
-    if (nodeEnv === "development") {
-      if (!sandboxId) {
-        res
-          .status(401)
-          .json({ message: "no sandbox id shared", success: false });
-        return;
-      }
-
-      const sandbox = await dbClient.sandbox.findFirst({
-        where: {
-          id: sandboxId,
-          status: "active",
-        },
-      });
-
-      if (!sandbox) {
-        res
-          .status(401)
-          .json({ message: "invalid sandbox id shared", success: false });
-        return;
-      }
-
-      await deleteContainer(sandbox?.containerId);
-
-      await dbClient.sandbox.update({
-        where: {
-          id: sandboxId,
-        },
-        data: {
-          status: "deleted",
-        },
-      });
-      res.json({
-        message: "Deleted the sandbox successfully",
-        success: true,
-      });
-    } else {
-      // delete firecracker here
+    if (!sandboxId) {
+      res.status(401).json({ message: "no sandbox id shared", success: false });
+      return;
     }
+
+    const sandbox = await dbClient.sandbox.findFirst({
+      where: {
+        id: sandboxId,
+        status: "active",
+      },
+    });
+
+    if (!sandbox) {
+      res
+        .status(401)
+        .json({ message: "invalid sandbox id shared", success: false });
+      return;
+    }
+
+    if (nodeEnv === "development") {
+      await dockerExecutor.deleteContainer(sandbox?.containerId);
+    } else {
+      await firecrackerExecutor.deleteContainer(sandbox?.containerId);
+    }
+
+    await dbClient.sandbox.update({
+      where: {
+        id: sandboxId,
+      },
+      data: {
+        status: "deleted",
+      },
+    });
+
+    res.json({
+      message: "Deleted the sandbox successfully",
+      success: true,
+    });
   } catch (err) {
     console.error("[SERVER DELETE] ERROR:", err);
     res.status(400).json({
@@ -144,38 +138,39 @@ app.post("/sandbox/:id/exec", async (req, res) => {
   const { command } = req.body;
 
   try {
-    if (nodeEnv === "development") {
-      if (!command) {
-        res.status(401).json({
-          message: "command is required",
-          success: false,
-        });
-      }
-
-      const sandbox = await dbClient.sandbox.findFirst({
-        where: {
-          id: sandboxId,
-          status: "active",
-        },
+    if (!command) {
+      res.status(401).json({
+        message: "command is required",
+        success: false,
       });
-
-      if (!sandbox) {
-        res.status(401).json({
-          message: "Sandbox does not exist or is not active",
-          success: false,
-        });
-        return;
-      }
-
-      const result = await executeCommand(sandbox.containerId, command);
-
-      res.json({
-        success: true,
-        result,
-      });
-    } else {
-      // execute command on firecracker here
     }
+
+    const sandbox = await dbClient.sandbox.findFirst({
+      where: {
+        id: sandboxId,
+        status: "active",
+      },
+    });
+
+    if (!sandbox) {
+      res.status(401).json({
+        message: "Sandbox does not exist or is not active",
+        success: false,
+      });
+      return;
+    }
+
+    let result;
+    if (nodeEnv === "development") {
+      result = await dockerExecutor.executeCommand(sandbox.containerId, command);
+    } else {
+      result = await firecrackerExecutor.executeCommand(sandbox.containerId, command);
+    }
+
+    res.json({
+      success: true,
+      result,
+    });
   } catch (err) {
     console.log(err);
     res.status(400).json({
@@ -223,7 +218,7 @@ app.post("/sandbox/:id/repl/start", async (req, res) => {
       console.log(
         `[REPL START] Starting REPL for container: ${sandbox.containerId}`
       );
-      const { sessionId } = await startRepl(sandbox.containerId);
+      const { sessionId } = await dockerExecutor.startRepl(sandbox.containerId);
       console.log(
         `[REPL START] REPL started successfully with sessionId: ${sessionId}`
       );
@@ -260,7 +255,7 @@ app.get("/sandbox/repl/:sessionId/stream", async (req, res) => {
       `[REPL STREAM] Received SSE request for sessionId: ${sessionId}`
     );
 
-    const emitter = getReplEmitter(sessionId);
+    const emitter = dockerExecutor.getReplEmitter(sessionId);
     console.log(
       `[REPL STREAM] Emitter lookup result:`,
       emitter ? "found" : "not found"
@@ -372,7 +367,7 @@ app.post("/sandbox/repl/:sessionId/input", async (req, res) => {
       console.log(
         `[REPL INPUT] Writing input to REPL for sessionId: ${sessionId}`
       );
-      writeToRepl(sessionId, input);
+      dockerExecutor.writeToRepl(sessionId, input);
       console.log(
         `[REPL INPUT] Input written successfully for sessionId: ${sessionId}`
       );
@@ -395,23 +390,23 @@ app.post("/sandbox/repl/:sessionId/input", async (req, res) => {
 });
 
 app.delete("/sandbox/repl/:sessionId", async (req, res) => {
-  if(nodeEnv === "development") {
-  const sessionId = req.params.sessionId;
+  if (nodeEnv === "development") {
+    const sessionId = req.params.sessionId;
 
-  try {
-    stopRepl(sessionId);
-    res.json({
-      success: true,
-      message: "REPL stopped successfully",
-    });
-  } catch (err) {
-    console.log(err);
-    res.status(400).json({
-      err,
-      success: false,
-      message: "Failed to stop REPL",
-    });
-  }
+    try {
+      dockerExecutor.stopRepl(sessionId);
+      res.json({
+        success: true,
+        message: "REPL stopped successfully",
+      });
+    } catch (err) {
+      console.log(err);
+      res.status(400).json({
+        err,
+        success: false,
+        message: "Failed to stop REPL",
+      });
+    }
   } else {
     // stop repl on firecracker here
   }
