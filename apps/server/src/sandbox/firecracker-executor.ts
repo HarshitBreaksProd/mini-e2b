@@ -96,10 +96,17 @@ export const startRepl = async (vmName: string) => {
 
   replProcess.stderr.on("data", (chunk: Buffer) => {
     const data = chunk.toString();
+    console.log(
+      `[FIRECRACKER] Process stderr for sessionId ${sessionId}:`,
+      data
+    );
     emitter.emit("output", data);
   });
 
-  replProcess.on("close", () => {
+  replProcess.on("close", (code) => {
+    console.log(
+      `[FIRECRACKER] Process closed with code: ${code} for sessionId: ${sessionId}`
+    );
     emitter.emit("end");
     replSessions.delete(sessionId);
   });
