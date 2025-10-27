@@ -20,13 +20,13 @@ const app = express();
 // Middleware to parse JSON bodies
 app.use(express.json());
 
-// CORS middleware to allow frontend connections
-app.use(
-  cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
-    credentials: true,
-  })
-);
+// CORS disabled for proof of concept
+// app.use(
+//   cors({
+//     origin: process.env.FRONTEND_URL || "http://localhost:5173",
+//     credentials: true,
+//   })
+// );
 
 //get all sandboxes
 app.get("/sandbox", async (req, res) => {
