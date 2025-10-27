@@ -422,7 +422,7 @@ const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log(
-    `Server listening on port: ${PORT} \nNode environment: ${executor}\nEnvironment variables: ${JSON.stringify(
+    `Server listening on port: ${PORT} \nExecutor: ${executor}\nEnvironment variables: ${JSON.stringify(
       process.env.EXECUTOR
     )}`
   );
