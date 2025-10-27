@@ -8,7 +8,7 @@ import dbClient from "./db/index";
 // Load environment variables
 dotenv.config();
 
-const nodeEnv = process.env.NODE_ENV || "development";
+const executor = process.env.EXECUTOR || "docker";
 
 const app = express();
 
@@ -54,7 +54,7 @@ app.get("/sandbox", async (req, res) => {
 app.post("/sandbox", async (req, res) => {
   try {
     let containerId: string;
-    if (nodeEnv === "development") {
+    if (executor === "development") {
       containerId = await dockerExecutor.createContainer();
     } else {
       // set firecracker here
@@ -103,7 +103,7 @@ app.delete("/sandbox", async (req, res) => {
       return;
     }
 
-    if (nodeEnv === "development") {
+    if (executor === "development") {
       await dockerExecutor.deleteContainer(sandbox?.containerId);
     } else {
       await firecrackerExecutor.deleteContainer(sandbox?.containerId);
@@ -161,10 +161,16 @@ app.post("/sandbox/:id/exec", async (req, res) => {
     }
 
     let result;
-    if (nodeEnv === "development") {
-      result = await dockerExecutor.executeCommand(sandbox.containerId, command);
+    if (executor === "development") {
+      result = await dockerExecutor.executeCommand(
+        sandbox.containerId,
+        command
+      );
     } else {
-      result = await firecrackerExecutor.executeCommand(sandbox.containerId, command);
+      result = await firecrackerExecutor.executeCommand(
+        sandbox.containerId,
+        command
+      );
     }
 
     res.json({
@@ -186,7 +192,7 @@ app.post("/sandbox/:id/repl/start", async (req, res) => {
   const sandboxId = req.params.id;
 
   try {
-    if (nodeEnv === "development") {
+    if (executor === "development") {
       const sandbox = await dbClient.sandbox.findFirst({
         where: {
           id: sandboxId,
@@ -249,7 +255,7 @@ app.options("/sandbox/repl/:sessionId/stream", (req, res) => {
 });
 
 app.get("/sandbox/repl/:sessionId/stream", async (req, res) => {
-  if (nodeEnv === "development") {
+  if (executor === "development") {
     const sessionId = req.params.sessionId;
     console.log(
       `[REPL STREAM] Received SSE request for sessionId: ${sessionId}`
@@ -345,7 +351,7 @@ app.get("/sandbox/repl/:sessionId/stream", async (req, res) => {
 });
 
 app.post("/sandbox/repl/:sessionId/input", async (req, res) => {
-  if (nodeEnv === "development") {
+  if (executor === "development") {
     const sessionId = req.params.sessionId;
     const { input } = req.body;
     console.log(
@@ -390,7 +396,7 @@ app.post("/sandbox/repl/:sessionId/input", async (req, res) => {
 });
 
 app.delete("/sandbox/repl/:sessionId", async (req, res) => {
-  if (nodeEnv === "development") {
+  if (executor === "development") {
     const sessionId = req.params.sessionId;
 
     try {
@@ -415,5 +421,9 @@ app.delete("/sandbox/repl/:sessionId", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`Server listening on port: ${PORT} \nNode environment: ${nodeEnv}`);
+  console.log(
+    `Server listening on port: ${PORT} \nNode environment: ${executor}\nEnvironment variables: ${JSON.stringify(
+      process.env.EXECUTOR
+    )}`
+  );
 });
