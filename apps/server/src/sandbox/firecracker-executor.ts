@@ -82,9 +82,13 @@ export const startRepl = async (vmName: string) => {
   const sessionId = crypto.randomUUID().substring(0, 8);
   const emitter = new EventEmitter();
 
-  const replProcess = spawn("ignite", ["exec", "-t", vmName, "--", "bash"], {
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  const replProcess = spawn(
+    "ignite",
+    ["exec", vmName, "--", "script", "-q", "/dev/null", "bash", "-i"],
+    {
+      stdio: ["pipe", "pipe", "pipe"],
+    }
+  );
 
   replProcess.stdout.on("data", (chunk: Buffer) => {
     const data = chunk.toString();
