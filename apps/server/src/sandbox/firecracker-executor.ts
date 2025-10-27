@@ -82,7 +82,7 @@ export const startRepl = async (vmName: string) => {
   const sessionId = crypto.randomUUID().substring(0, 8);
   const emitter = new EventEmitter();
 
-  const replProcess = spawn("ignite", ["exec", vmName, "--", "bash"], {
+  const replProcess = spawn("ignite", ["exec", "-t", vmName, "--", "bash"], {
     stdio: ["pipe", "pipe", "pipe"],
   });
 
