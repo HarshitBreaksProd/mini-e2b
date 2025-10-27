@@ -251,17 +251,8 @@ app.post("/sandbox/:id/repl/start", async (req, res) => {
   }
 });
 
-// Handle OPTIONS preflight for SSE endpoint
+// Handle OPTIONS preflight for SSE endpoint - CORS handled by nginx
 app.options("/sandbox/repl/:sessionId/stream", (req, res) => {
-  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-  res.setHeader("Access-Control-Allow-Origin", frontendUrl);
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, Cache-Control"
-  );
-  res.setHeader("Access-Control-Max-Age", "86400");
   res.status(200).end();
 });
 
@@ -290,19 +281,7 @@ app.get("/sandbox/repl/:sessionId/stream", async (req, res) => {
     `[REPL STREAM] Setting up SSE headers and connection for sessionId: ${sessionId}`
   );
 
-  // Set comprehensive CORS headers for SSE
-  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-  res.setHeader("Access-Control-Allow-Origin", frontendUrl);
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, DELETE, OPTIONS"
-  );
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, Cache-Control"
-  );
-  res.setHeader("Access-Control-Expose-Headers", "Content-Type, Cache-Control");
+  // CORS headers are handled by nginx - don't set them here to avoid duplicates
 
   // Set SSE headers
   res.setHeader("Content-Type", "text/event-stream");
