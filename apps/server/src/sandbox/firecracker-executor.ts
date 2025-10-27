@@ -27,6 +27,8 @@ const waitForVMReady = async (
       );
       const status = stdout.trim();
 
+      console.log(`[FIRECRACKER] VM ${vmName} status: ${status}`);
+
       if (status === "running" || status === "Running") {
         console.log(`[FIRECRACKER] VM ${vmName} is ready!`);
         return;
