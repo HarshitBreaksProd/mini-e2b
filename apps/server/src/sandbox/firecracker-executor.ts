@@ -84,7 +84,7 @@ export const startRepl = async (vmName: string) => {
 
   const replProcess = spawn(
     "ignite",
-    ["exec", vmName, "--", "script", "-q", "/dev/null", "bash", "-i"],
+    ["exec", vmName, "--", "script", "-q", "/dev/null", "bash"],
     {
       stdio: ["pipe", "pipe", "pipe"],
     }
